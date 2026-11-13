@@ -49,6 +49,10 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
 .hint{font-size:14px;color:var(--muted);margin:0}
 fieldset{border:0;padding:0;margin:0;display:grid;gap:14px}
 fieldset:disabled{opacity:.45}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:4px}
+.seg button{border:0;background:transparent;font-weight:700}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-fg)}
+.modeinfo{font-size:13px;color:var(--muted);margin:0}
 </style>
 </head>
 <body>
@@ -69,8 +73,18 @@ fieldset:disabled{opacity:.45}
         <button data-cmd="light">Light on / off</button>
       </div>
     </section>
+    <section>
+      <h2>Motion style</h2>
+      <div class="seg" role="group" aria-label="Motion style">
+        <button id="m_simple" aria-pressed="false">Simple</button>
+        <button id="m_smooth" aria-pressed="true">Smooth</button>
+      </div>
+      <p class="modeinfo" id="modeinfo"></p>
+    </section>
     <section id="positions"><h2>Positions (degrees)</h2></section>
-    <section id="motion"><h2>Motion</h2></section>
+    <section id="simple"><h2>Simple motion</h2></section>
+    <section id="motion"><h2>Smooth motion</h2></section>
+    <section id="common"><h2>After a move</h2></section>
     <section id="light"><h2>Light</h2></section>
     <section>
       <h2>Reset</h2>
@@ -91,11 +105,12 @@ const SETTINGS = [
   {k:'closed', sec:'positions', label:'Closed', help:'loupes down in front of the eyes', min:0, max:190, step:1, test:'close'},
   {k:'patient',sec:'positions', label:'Patient open', help:'loupes fully up', min:0, max:190, step:1, test:'open'},
   {k:'surg',   sec:'positions', label:'Surgical open', help:'loupes half up', min:0, max:190, step:1, test:'surgical'},
+  {k:'simple', sec:'simple', label:'Speed', help:'0 = full speed like the X1; higher = slower, up to 2 s for a full move', min:0, max:2000, step:50, zero:'Full'},
   {k:'speed',  sec:'motion', label:'Move time', help:'ms for a full move; higher = slower, softer', min:200, max:2000, step:50},
   {k:'ease',   sec:'motion', label:'Softness', help:'lower = gentler start, higher = stronger start', min:1, max:4, step:0.1},
   {k:'minstep',sec:'motion', label:'Quiet end: step', help:'degrees; higher = quieter end of move', min:0, max:2, step:0.1},
   {k:'snap',   sec:'motion', label:'Quiet end: snap', help:'last degrees in one go; higher = quieter', min:0, max:6, step:0.5},
-  {k:'hold',   sec:'motion', label:'Hold after move', help:'ms; shorter = less buzz after arriving', min:0, max:2000, step:50},
+  {k:'hold',   sec:'common', label:'Hold after move', help:'ms; shorter = less buzz after arriving', min:0, max:2000, step:50},
   {k:'bright', sec:'light', label:'Brightness', help:'%', min:0, max:100, step:5},
   {k:'delay',  sec:'light', label:'Light delay', help:'ms after closing before the light turns on', min:0, max:1500, step:50},
 ];
@@ -103,6 +118,13 @@ const $ = id => document.getElementById(id);
 let waiter = null, rxChar = null, device = null, inbox = '', queue = Promise.resolve(), dirty = false;
 const dec = (v,s) => (String(s).includes('.') ? Number(v).toFixed(String(s).split('.')[1].length) : String(Math.round(v)));
 
+const show = (s, v) => (s.zero && Number(v) === 0) ? s.zero : dec(v, s.step);
+function setMode(smooth, sendIt) {
+  $('m_smooth').setAttribute('aria-pressed', smooth); $('m_simple').setAttribute('aria-pressed', !smooth);
+  $('motion').hidden = !smooth; $('simple').hidden = smooth;
+  $('modeinfo').textContent = smooth ? 'Strong start, soft landing.' : 'Straight up and down at one steady speed, like the X1.';
+  if (sendIt) { send('smooth ' + (smooth ? 1 : 0)); markDirty(true); }
+}
 // build the controls
 for (const s of SETTINGS) {
   const box = document.createElement('div'); box.className = 'set';
@@ -112,13 +134,13 @@ for (const s of SETTINGS) {
   <button class="pm" data-k="${s.k}" data-d="1" aria-label="${s.label} plus">+</button></div>`;
   $(s.sec).appendChild(box);
   const r = box.querySelector('input');
-  r.addEventListener('input', () => $('v_'+s.k).textContent = dec(r.value, s.step));
+  r.addEventListener('input', () => $('v_'+s.k).textContent = show(s, r.value));
   r.addEventListener('change', () => setVal(s, r.value));
 }
 document.querySelectorAll('.pm').forEach(b => b.addEventListener('click', () => {
   const s = SETTINGS.find(x => x.k === b.dataset.k), r = $('r_'+s.k);
   const v = Math.min(s.max, Math.max(s.min, Number(r.value) + Number(b.dataset.d) * s.step));
-  r.value = v; $('v_'+s.k).textContent = dec(v, s.step); setVal(s, v);
+  r.value = v; $('v_'+s.k).textContent = show(s, v); setVal(s, v);
 }));
 document.querySelectorAll('[data-cmd]').forEach(b => b.addEventListener('click', () => send(b.dataset.cmd)));
 
@@ -154,8 +176,9 @@ function onText(t) {
     for (const line of inbox.split('\n')) {
       const m = line.match(/^(\w+) (-?[\d.]+)/);
       if (!m) { if (/SAVED/.test(line)) markDirty(false); continue; }
-      const s = SETTINGS.find(x => x.k === m[1]); if (!s) continue;
-      $('r_'+s.k).value = m[2]; $('v_'+s.k).textContent = dec(m[2], s.step);
+      const s = SETTINGS.find(x => x.k === m[1]); if (!s && m[1] !== 'smooth') continue;
+      if (m[1] === 'smooth') { setMode(m[2] !== '0', false); continue; }
+      $('r_'+s.k).value = m[2]; $('v_'+s.k).textContent = show(s, m[2]);
     }
     inbox = '';
   }, 250);
@@ -187,6 +210,9 @@ $('connect').addEventListener('click', async () => {
   }
 });
 $('save').addEventListener('click', () => send('save'));
+$('m_smooth').addEventListener('click', () => setMode(true, true));
+$('m_simple').addEventListener('click', () => setMode(false, true));
+setMode(true, false);
 $('defaults').addEventListener('click', () => { send('defaults'); markDirty(true); });
 </script>
 </body>
