@@ -53,6 +53,14 @@ fieldset:disabled{opacity:.45}
 .seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:4px}
 .seg button{border:0;background:transparent;font-weight:700}
 .seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-fg)}
+.unit{display:grid;gap:10px}
+.cust{font-size:20px;font-weight:700}
+.rem{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);padding-top:8px}
+.rem .code{flex:1;font-variant-numeric:tabular-nums}
+.rem .code small{display:block;color:var(--muted);font-size:12px}
+.addrow{display:flex;gap:8px}
+.addrow input{flex:1;min-width:0;font:inherit;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg)}
+.danger{color:#c0392b}
 .modeinfo{font-size:13px;color:var(--muted);margin:0}
 </style>
 </head>
@@ -65,6 +73,15 @@ fieldset:disabled{opacity:.45}
 <main>
   <p class="hint" id="hint">Hold the remote button for 10 seconds until the light blinks 3 times, then tap <b>Connect</b> and choose <b>Loupes-Setup</b>.</p>
   <fieldset id="all" disabled>
+    <section class="unit">
+      <h2>This unit</h2>
+      <div class="cust" id="cust">-</div>
+      <div id="remotes"><p class="modeinfo">No remotes paired.</p></div>
+      <p class="modeinfo" id="pairmsg" hidden></p>
+      <button id="pairbtn">Pair a new remote</button>
+      <div class="addrow"><input id="addcode" inputmode="numeric" placeholder="Remote code (full code)" aria-label="Remote code"><button id="addbtn">Add</button></div>
+      <button id="clearbtn" class="danger">Remove all remotes</button>
+    </section>
     <section>
       <h2>Test</h2>
       <div class="btns">
@@ -168,13 +185,38 @@ function send(text) {
 }
 function setStatus(t, on) { const s = $('status'); s.textContent = t; s.classList.toggle('on', !!on); }
 
-let parseTimer = null;
+let parseTimer = null, infoRem = [], infoFixed = null;
+function renderRemotes() {
+  const box = $('remotes'); box.innerHTML = '';
+  if (!infoRem.length && !infoFixed) { box.innerHTML = '<p class="modeinfo">No remotes paired.</p>'; return; }
+  infoRem.forEach(([code, num], i) => {
+    const row = document.createElement('div'); row.className = 'rem';
+    row.innerHTML = `<div class="code">Remote ${i + 1}: <b>${code}</b><small>remote number ${num}, key ${code % 16}</small></div>`;
+    const b = document.createElement('button'); b.textContent = 'Remove'; b.className = 'danger';
+    b.onclick = () => { if (confirm('Remove remote ' + code + '?')) send('delremote ' + code); };
+    row.appendChild(b); box.appendChild(row);
+  });
+  if (infoFixed) { const row = document.createElement('div'); row.className = 'rem';
+    row.innerHTML = `<div class="code">Fixed in firmware: <b>${infoFixed}</b><small>set with FIXED_REMOTE_CODE in the code</small></div>`; box.appendChild(row); }
+}
+function onLine(line) {
+  let m;
+  if (line === 'endinfo') { renderRemotes(); return true; }
+  if ((m = line.match(/^name (.*)$/))) { $('cust').textContent = m[1] || '(no name set)'; infoRem = []; infoFixed = null; return true; }
+  if ((m = line.match(/^remote (\d+) (\d+)/))) { infoRem.push([m[1], m[2]]); return true; }
+  if ((m = line.match(/^fixed (\d+)/))) { infoFixed = m[1]; return true; }
+  if (/^pairing:/.test(line)) { $('pairmsg').hidden = false; $('pairmsg').textContent = 'Press the new remote\'s button now (15 seconds)...'; return true; }
+  if ((m = line.match(/^paired (\d+)/))) { $('pairmsg').textContent = 'Paired remote ' + m[1] + '.'; return true; }
+  if (/timed out/.test(line)) { $('pairmsg').textContent = 'No remote heard. Tap Pair and try again.'; return true; }
+  return false;
+}
 function onText(t) {
   inbox += t;
   if (waiter && t.includes('\n')) { const w = waiter; waiter = null; w(); }
   clearTimeout(parseTimer);
   parseTimer = setTimeout(() => {
     for (const line of inbox.split('\n')) {
+      if (onLine(line.trim())) continue;
       const m = line.match(/^(\w+) (-?[\d.]+)/);
       if (!m) { if (/SAVED/.test(line)) markDirty(false); continue; }
       const s = SETTINGS.find(x => x.k === m[1]); if (!s && m[1] !== 'smooth') continue;
@@ -205,12 +247,15 @@ $('connect').addEventListener('click', async () => {
     $('all').disabled = false; $('save').disabled = false; $('hint').hidden = true;
     $('connect').textContent = 'Reconnect';
     setStatus('Connected', true);
-    send('help');                                  // board answers with all current values
+    send('help'); send('info');                                  // board answers with all current values
   } catch (e) {
     setStatus(e.name === 'NotFoundError' ? 'Not connected' : 'Could not connect', false);
   }
 });
 $('save').addEventListener('click', () => send('save'));
+$('pairbtn').addEventListener('click', () => send('pair'));
+$('addbtn').addEventListener('click', () => { const v = $('addcode').value.trim(); if (/^\d+$/.test(v)) { send('addremote ' + v); $('addcode').value = ''; } });
+$('clearbtn').addEventListener('click', () => { if (confirm('Remove ALL remotes from this unit? The loupes will not respond to any remote until one is paired again.')) send('clearremotes'); });
 $('m_smooth').addEventListener('click', () => setMode(true, true));
 $('m_simple').addEventListener('click', () => setMode(false, true));
 setMode(true, false);
