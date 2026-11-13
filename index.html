@@ -77,7 +77,7 @@ fieldset:disabled{opacity:.45}
     <div class="addrow"><input id="rcode" maxlength="6" autocapitalize="characters" placeholder="Session code" aria-label="Session code"><button id="rjoin" class="primary">Join</button></div>
     <p class="modeinfo" id="rstatus"></p>
   </section>
-  <p class="hint" id="hint">Hold the remote button for 10 seconds until the light blinks 3 times, then tap <b>Connect</b> and choose <b>Loupes-Setup</b>.</p>
+  <p class="hint" id="hint">Unplug the battery, hold the remote button, plug the battery back in and keep holding about 3 seconds until the light blinks 3 times. Then tap <b>Connect</b> and choose <b>Loupes-Setup</b>.</p>
   <fieldset id="all" disabled>
     <section class="unit">
       <h2>This unit</h2>
@@ -106,6 +106,14 @@ fieldset:disabled{opacity:.45}
       <p class="modeinfo" id="modeinfo"></p>
     </section>
     <section id="positions"><h2>Positions (degrees)</h2></section>
+    <section id="capbox">
+      <h2>Cap mode</h2>
+      <div class="seg" role="group" aria-label="Cap mode">
+        <button id="cap_off" aria-pressed="true">Off</button>
+        <button id="cap_on" aria-pressed="false">On</button>
+      </div>
+      <p class="modeinfo">On the remote: hold 4 s. 5 fast blinks = on, 1 slow blink = off. Switching here takes effect right away.</p>
+    </section>
     <section id="simple"><h2>Simple motion</h2></section>
     <section id="motion"><h2>Smooth motion</h2></section>
     <section id="common"><h2>After a move</h2></section>
@@ -133,6 +141,7 @@ const SETTINGS = [
   {k:'closed', sec:'positions', label:'Closed', help:'loupes down in front of the eyes', min:0, max:190, step:1, test:'close'},
   {k:'patient',sec:'positions', label:'Patient open', help:'loupes fully up', min:0, max:190, step:1, test:'open'},
   {k:'surg',   sec:'positions', label:'Surgical open', help:'loupes half up', min:0, max:190, step:1, test:'surgical'},
+  {k:'capdeg', sec:'capbox', label:'Extra close', help:'degrees further down when Cap mode is on', min:0, max:10, step:1, test:'close'},
   {k:'simple', sec:'simple', label:'Speed', help:'0 = full speed like the X1; higher = slower, up to 2 s for a full move', min:0, max:2000, step:50, zero:'Full'},
   {k:'speed',  sec:'motion', label:'Move time', help:'ms for a full move; higher = slower, softer', min:200, max:2000, step:50},
   {k:'ease',   sec:'motion', label:'Softness', help:'lower = gentler start, higher = stronger start', min:1, max:4, step:0.1},
@@ -147,6 +156,10 @@ let waiter = null, rxChar = null, device = null, inbox = '', queue = Promise.res
 const dec = (v,s) => (String(s).includes('.') ? Number(v).toFixed(String(s).split('.')[1].length) : String(Math.round(v)));
 
 const show = (s, v) => (s.zero && Number(v) === 0) ? s.zero : dec(v, s.step);
+function setCap(on, sendIt) {
+  $('cap_on').setAttribute('aria-pressed', on); $('cap_off').setAttribute('aria-pressed', !on);
+  if (sendIt) send('cap ' + (on ? 1 : 0));
+}
 function setMode(smooth, sendIt) {
   $('m_smooth').setAttribute('aria-pressed', smooth); $('m_simple').setAttribute('aria-pressed', !smooth);
   $('motion').hidden = !smooth; $('simple').hidden = smooth;
@@ -230,6 +243,7 @@ function onText(t) {
       if (onLine(line.trim())) continue;
       const m = line.match(/^(\w+) (-?[\d.]+)/);
       if (!m) { if (/SAVED/.test(line)) markDirty(false); continue; }
+      if (m[1] === 'cap') { setCap(m[2] !== '0', false); continue; }
       const s = SETTINGS.find(x => x.k === m[1]); if (!s && m[1] !== 'smooth') continue;
       if (m[1] === 'smooth') { setMode(m[2] !== '0', false); continue; }
       $('r_'+s.k).value = m[2]; $('v_'+s.k).textContent = show(s, m[2]);
@@ -287,6 +301,8 @@ $('clearbtn').addEventListener('click', () => { if (confirm('Remove ALL remotes 
 $('m_smooth').addEventListener('click', () => setMode(true, true));
 $('m_simple').addEventListener('click', () => setMode(false, true));
 setMode(true, false);
+$('cap_on').addEventListener('click', () => setCap(true, true));
+$('cap_off').addEventListener('click', () => setCap(false, true));
 $('defaults').addEventListener('click', () => { send('defaults'); markDirty(true); });
 </script>
 </body>
