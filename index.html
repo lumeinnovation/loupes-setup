@@ -69,6 +69,8 @@ fieldset:disabled{opacity:.45}
 .vrow p{min-width:0}
 .log li:first-child{font-weight:700}
 .log .empty{color:var(--muted);font-weight:400}
+.now{margin:0;font-weight:700}
+.now span{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--accent);color:var(--accent-fg);margin-left:4px;font-size:14px}
 .log time{color:var(--muted);margin-right:8px;font-weight:400}
 .modeinfo{font-size:13px;color:var(--muted);margin:0}
 .both{font-size:13px;color:var(--muted)}
@@ -111,6 +113,7 @@ fieldset:disabled{opacity:.45}
         <button id="vbtn" class="vbtn" aria-label="Remote button: click to tap, hold for long press"></button>
         <p class="modeinfo">Acts like the remote button.<br>Click = tap · hold 0.7 s = Patient/Surgical · hold 4 s = Cap / No cap</p>
       </div>
+      <p class="now" id="now">Now: -</p>
       <ol id="log" class="log"><li class="empty">No activity yet</li></ol>
     </section>
     <section>
@@ -251,6 +254,7 @@ function onLine(line) {
   let m;
   if (line === 'endinfo') { renderRemotes(); return true; }
   if ((m = line.match(/^ev (.*)$/))) { addLog(m[1]); return true; }
+  if ((m = line.match(/^state (\w+) (\w+)/))) { $('now').innerHTML = 'Now: <span>' + (m[1] === 'surgical' ? 'Surgical mode' : 'Patient mode') + '</span><span>' + (m[2] === 'cap' ? 'Cap position' : 'No cap position') + '</span>'; return true; }
   if (line === 'ok') return true;
   if ((m = line.match(/^name (.*)$/))) { $('cust').textContent = m[1] || '(no name set)'; infoRem = []; infoFixed = null; return true; }
   if ((m = line.match(/^remote (\d+) (\d+)/))) { infoRem.push([m[1], m[2]]); return true; }
