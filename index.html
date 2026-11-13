@@ -62,6 +62,8 @@ fieldset:disabled{opacity:.45}
 .addrow input{flex:1;min-width:0;font:inherit;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg)}
 .danger{color:#c0392b}
 .modeinfo{font-size:13px;color:var(--muted);margin:0}
+.both{font-size:13px;color:var(--muted)}
+.both b{color:var(--fg)}
 </style>
 </head>
 <body>
@@ -105,14 +107,13 @@ fieldset:disabled{opacity:.45}
       </div>
       <p class="modeinfo" id="modeinfo"></p>
     </section>
-    <section id="positions"><h2>Positions (degrees)</h2></section>
-    <section id="capbox">
-      <h2>Cap mode</h2>
-      <div class="seg" role="group" aria-label="Cap mode">
-        <button id="cap_off" aria-pressed="true">Off</button>
-        <button id="cap_on" aria-pressed="false">On</button>
+    <section id="positions">
+      <h2>Positions (degrees)</h2>
+      <div class="seg" role="group" aria-label="Cap setting">
+        <button id="cap_off" aria-pressed="true">No cap</button>
+        <button id="cap_on" aria-pressed="false">Cap</button>
       </div>
-      <p class="modeinfo">On the remote: hold 4 s. 5 fast blinks = on, 1 slow blink = off. Switching here takes effect right away.</p>
+      <p class="modeinfo">Switches the loupes too. Closed and Surgical have their own numbers for each; Patient open is shared. On the remote: hold 4 s (5 fast blinks = Cap, 1 slow blink = No cap).</p>
     </section>
     <section id="simple"><h2>Simple motion</h2></section>
     <section id="motion"><h2>Smooth motion</h2></section>
@@ -138,10 +139,9 @@ const RX  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 const TX  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 // key = command word on the board
 const SETTINGS = [
-  {k:'closed', sec:'positions', label:'Closed', help:'loupes down in front of the eyes', min:0, max:190, step:1, test:'close'},
+  {k:'closed', cap:'capclosed', sec:'positions', label:'Closed', help:'loupes down in front of the eyes', min:0, max:190, step:1, test:'close'},
   {k:'patient',sec:'positions', label:'Patient open', help:'loupes fully up', min:0, max:190, step:1, test:'open'},
-  {k:'surg',   sec:'positions', label:'Surgical open', help:'loupes half up', min:0, max:190, step:1, test:'surgical'},
-  {k:'capdeg', sec:'capbox', label:'Extra close', help:'degrees further down when Cap mode is on', min:0, max:10, step:1, test:'close'},
+  {k:'surg', cap:'capsurg', sec:'positions', label:'Surgical open', help:'loupes half up', min:0, max:190, step:1, test:'surgical'},
   {k:'simple', sec:'simple', label:'Speed', help:'0 = full speed like the X1; higher = slower, up to 2 s for a full move', min:0, max:2000, step:50, zero:'Full'},
   {k:'speed',  sec:'motion', label:'Move time', help:'ms for a full move; higher = slower, softer', min:200, max:2000, step:50},
   {k:'ease',   sec:'motion', label:'Softness', help:'lower = gentler start, higher = stronger start', min:1, max:4, step:0.1},
@@ -156,8 +156,17 @@ let waiter = null, rxChar = null, device = null, inbox = '', queue = Promise.res
 const dec = (v,s) => (String(s).includes('.') ? Number(v).toFixed(String(s).split('.')[1].length) : String(Math.round(v)));
 
 const show = (s, v) => (s.zero && Number(v) === 0) ? s.zero : dec(v, s.step);
+let capOn = false; const vals = {};
+const keyOf = s => (capOn && s.cap) ? s.cap : s.k;
+function refresh(s) {
+  const v = vals[keyOf(s)]; if (v === undefined) return;
+  $('r_'+s.k).value = v; $('v_'+s.k).textContent = show(s, v);
+  if (s.cap) { const a = vals[s.k], b = vals[s.cap], f = x => x === undefined ? '-' : x + '°';
+    $('b_'+s.k).innerHTML = (capOn ? 'No cap: ' + f(a) + ' · <b>Cap: ' + f(b) + '</b>' : '<b>No cap: ' + f(a) + '</b> · Cap: ' + f(b)); }
+}
 function setCap(on, sendIt) {
-  $('cap_on').setAttribute('aria-pressed', on); $('cap_off').setAttribute('aria-pressed', !on);
+  capOn = on; $('cap_on').setAttribute('aria-pressed', on); $('cap_off').setAttribute('aria-pressed', !on);
+  SETTINGS.filter(x => x.cap).forEach(refresh);
   if (sendIt) send('cap ' + (on ? 1 : 0));
 }
 function setMode(smooth, sendIt) {
@@ -169,7 +178,7 @@ function setMode(smooth, sendIt) {
 // build the controls
 for (const s of SETTINGS) {
   const box = document.createElement('div'); box.className = 'set';
-  box.innerHTML = `<div class="top"><label for="r_${s.k}">${s.label}<small>${s.help}</small></label><span class="val" id="v_${s.k}">-</span></div>
+  box.innerHTML = (s.cap ? `<div class="both" id="b_${s.k}"></div>` : '') + `<div class="top"><label for="r_${s.k}">${s.label}<small>${s.help}</small></label><span class="val" id="v_${s.k}">-</span></div>
   <div class="row"><button class="pm" data-k="${s.k}" data-d="-1" aria-label="${s.label} minus">−</button>
   <input type="range" id="r_${s.k}" min="${s.min}" max="${s.max}" step="${s.step}">
   <button class="pm" data-k="${s.k}" data-d="1" aria-label="${s.label} plus">+</button></div>`;
@@ -186,7 +195,8 @@ document.querySelectorAll('.pm').forEach(b => b.addEventListener('click', () => 
 document.querySelectorAll('[data-cmd]').forEach(b => b.addEventListener('click', () => send(b.dataset.cmd)));
 
 function setVal(s, v) {
-  send(`${s.k} ${dec(v, s.step)}`);
+  vals[keyOf(s)] = dec(v, s.step); if (s.cap) refresh(s);
+  send(`${keyOf(s)} ${dec(v, s.step)}`);
   markDirty(true);
   if (s.test) send(s.test);                 // move there so you can see/feel it
 }
@@ -244,9 +254,9 @@ function onText(t) {
       const m = line.match(/^(\w+) (-?[\d.]+)/);
       if (!m) { if (/SAVED/.test(line)) markDirty(false); continue; }
       if (m[1] === 'cap') { setCap(m[2] !== '0', false); continue; }
-      const s = SETTINGS.find(x => x.k === m[1]); if (!s && m[1] !== 'smooth') continue;
+      const s = SETTINGS.find(x => x.k === m[1] || x.cap === m[1]); if (!s && m[1] !== 'smooth') continue;
       if (m[1] === 'smooth') { setMode(m[2] !== '0', false); continue; }
-      $('r_'+s.k).value = m[2]; $('v_'+s.k).textContent = show(s, m[2]);
+      vals[m[1]] = m[2]; refresh(s);
     }
     inbox = '';
   }, 250);
