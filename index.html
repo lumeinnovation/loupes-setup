@@ -71,6 +71,12 @@ fieldset:disabled{opacity:.45}
   <button id="connect" class="primary">Connect</button>
 </header>
 <main>
+  <section id="remotebox">
+    <h2>Remote support session</h2>
+    <p class="modeinfo">Customer opens the support link and reads you their code. Enter it here to control their loupes.</p>
+    <div class="addrow"><input id="rcode" maxlength="6" autocapitalize="characters" placeholder="Session code" aria-label="Session code"><button id="rjoin" class="primary">Join</button></div>
+    <p class="modeinfo" id="rstatus"></p>
+  </section>
   <p class="hint" id="hint">Hold the remote button for 10 seconds until the light blinks 3 times, then tap <b>Connect</b> and choose <b>Loupes-Setup</b>.</p>
   <fieldset id="all" disabled>
     <section class="unit">
@@ -114,7 +120,11 @@ fieldset:disabled{opacity:.45}
   <span class="note" id="note">Changes apply right away. Save keeps them after unplugging.</span>
   <button id="save" class="primary" disabled>Save</button>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <script>
+const BROKER = 'wss://broker.hivemq.com:8884/mqtt';
+const TOPIC = code => 'lumeloupes/v1/' + code.toUpperCase();
+let remote = null, remoteCode = '';
 const NUS = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 const RX  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 const TX  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
@@ -173,11 +183,12 @@ function markDirty(d) {
   n.classList.toggle('dirty', d);
 }
 function send(text) {
-  if (!rxChar) return;
+  if (!rxChar && !remote) return;
   queue = queue.then(async () => {
     const data = new TextEncoder().encode(text + '\n');
     const reply = new Promise(r => { waiter = r; setTimeout(r, 2500); });   // board answers each command
-    for (let i = 0; i < data.length; i += 20) await rxChar.writeValue(data.slice(i, i + 20));
+    if (remote) remote.publish(TOPIC(remoteCode) + '/to', text + '\n');
+    else for (let i = 0; i < data.length; i += 20) await rxChar.writeValue(data.slice(i, i + 20));
     await reply; waiter = null;
     await new Promise(r => setTimeout(r, 40));
   }).catch(e => setStatus('Send failed - reconnect', false));
@@ -253,6 +264,23 @@ $('connect').addEventListener('click', async () => {
   }
 });
 $('save').addEventListener('click', () => send('save'));
+$('rjoin').addEventListener('click', () => {
+  const code = $('rcode').value.trim().toUpperCase();
+  if (code.length < 6) { $('rstatus').textContent = 'Enter the 6-character code from the customer.'; return; }
+  if (!window.mqtt) { $('rstatus').textContent = 'Could not load the remote connection. Check the internet and refresh.'; return; }
+  if (remote) { try { remote.end(true); } catch (e) {} }
+  remoteCode = code; $('rstatus').textContent = 'Joining ' + code + '...';
+  remote = mqtt.connect(BROKER, { clientId: 'tech-' + Math.random().toString(16).slice(2, 10), reconnectPeriod: 2000 });
+  remote.on('connect', () => {
+    remote.subscribe(TOPIC(code) + '/from');
+    $('all').disabled = false; $('save').disabled = false; $('hint').hidden = true;
+    setStatus('Remote ' + code, true);
+    $('rstatus').textContent = 'Joined. Waiting for the customer\'s loupes to answer...';
+    send('help'); send('info');
+  });
+  remote.on('message', (t, msg) => { $('rstatus').textContent = 'Connected to customer ' + code + '.'; onText(new TextDecoder().decode(msg)); });
+  remote.on('error', () => { $('rstatus').textContent = 'Remote connection problem - retrying...'; });
+});
 $('pairbtn').addEventListener('click', () => send('pair'));
 $('addbtn').addEventListener('click', () => { const v = $('addcode').value.trim(); if (/^\d+$/.test(v)) { send('addremote ' + v); $('addcode').value = ''; } });
 $('clearbtn').addEventListener('click', () => { if (confirm('Remove ALL remotes from this unit? The loupes will not respond to any remote until one is paired again.')) send('clearremotes'); });
