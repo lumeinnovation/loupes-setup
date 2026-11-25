@@ -53,6 +53,8 @@ fieldset:disabled{opacity:.45}
 .seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:4px}
 .seg button{border:0;background:transparent;font-weight:700}
 .seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-fg)}
+#voltseg{grid-template-columns:1fr 1fr 1fr}
+#voltbox{margin-bottom:12px}
 .unit{display:grid;gap:10px}
 .cust{font-size:20px;font-weight:700}
 .rem{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);padding-top:8px}
@@ -135,7 +137,16 @@ fieldset:disabled{opacity:.45}
     <section id="simple"><h2>Simple motion</h2></section>
     <section id="motion"><h2>Smooth motion</h2></section>
     <section id="common"><h2>After a move</h2></section>
-    <section id="light"><h2>Light</h2></section>
+    <section id="light"><h2>Light</h2>
+      <div id="voltbox" hidden>
+        <div class="seg" role="group" aria-label="Light power" id="voltseg">
+          <button data-v="31" aria-pressed="false">Low 3.1 V</button>
+          <button data-v="33" aria-pressed="false">Normal 3.3 V</button>
+          <button data-v="35" aria-pressed="false">High 3.5 V</button>
+        </div>
+        <p class="modeinfo">Light power (X7 boards). Changes right away. Higher = brighter; after a few minutes on High, check the light isn't getting hot.</p>
+      </div>
+    </section>
     <section>
       <h2>Reset</h2>
       <button id="defaults">Back to the numbers in the code</button>
@@ -274,6 +285,7 @@ function onText(t) {
       const m = line.match(/^(\w+) (-?[\d.]+)/);
       if (!m) { if (/SAVED/.test(line)) markDirty(false); continue; }
       if (m[1] === 'cap') { setCap(m[2] !== '0', false); continue; }
+      if (m[1] === 'volts') { $('voltbox').hidden = false; setVolts(m[2], false); continue; }
       const s = SETTINGS.find(x => x.k === m[1] || x.cap === m[1]); if (!s && m[1] !== 'smooth') continue;
       if (m[1] === 'smooth') { setMode(m[2] !== '0', false); continue; }
       vals[m[1]] = m[2]; refresh(s);
@@ -348,6 +360,11 @@ setMode(true, false);
 $('cap_on').addEventListener('click', () => setCap(true, true));
 $('cap_off').addEventListener('click', () => setCap(false, true));
 $('defaults').addEventListener('click', () => { send('defaults'); markDirty(true); });
+function setVolts(v, sendIt) {
+  document.querySelectorAll('#voltseg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === String(v))));
+  if (sendIt) { send('volts ' + v); markDirty(true); }
+}
+document.querySelectorAll('#voltseg button').forEach(b => b.addEventListener('click', () => setVolts(b.dataset.v, true)));
 </script>
 </body>
 </html>
